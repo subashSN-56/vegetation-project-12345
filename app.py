@@ -1,39 +1,17 @@
-# from flask import Flask, request, render_template
-# from ultralytics import YOLO
-# import os
-
-# app = Flask(__name__)
-
-# model = YOLO("best.pt")
-
-# UPLOAD_FOLDER = "static/uploads"
-# os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# @app.route("/", methods=["GET", "POST"])
-# def index():
-#     if request.method == "POST":
-#         file = request.files["image"]
-#         path = os.path.join(UPLOAD_FOLDER, file.filename)
-#         file.save(path)
-
-#         results = model(path, save=True)
-
-#         return render_template("index.html", image=path)
-
-#     return render_template("index.html", image=None)
-
-# if __name__ == "__main__":
-#     app.run(debug=True)
-
-from flask import Flask, request, render_template, send_from_directory
+from flask import Flask, request, render_template
 from ultralytics import YOLO
 import os
 import cv2
 
 app = Flask(__name__)
 
-# Load model
-model = YOLO("best.pt")
+# ✅ Smart model loading
+if os.path.exists("best.pt"):
+    print("✅ Loading custom model (best.pt)")
+    model = YOLO("best.pt")
+else:
+    print("⚠️ best.pt not found → using yolov8n.pt")
+    model = YOLO("yolov8n.pt")
 
 # Folders
 UPLOAD_FOLDER = "static/uploads"
@@ -46,37 +24,55 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["OUTPUT_FOLDER"] = OUTPUT_FOLDER
 
 
-# Home page
 @app.route("/", methods=["GET", "POST"])
 def index():
+    uploaded_image = None
+    output_image = None
+    prediction = None
+
     if request.method == "POST":
+
+        if "image" not in request.files:
+            return "No file uploaded"
+
         file = request.files["image"]
 
         if file.filename == "":
             return "No file selected"
 
-        # Save uploaded image
-        upload_path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
-        file.save(upload_path)
+        try:
+            # Save upload
+            upload_path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
+            upload_path = upload_path.replace("\\", "/")
+            file.save(upload_path)
 
-        # Run prediction
-        results = model(upload_path)
+            # Predict
+            results = model(upload_path)
 
-        # Get result image with boxes
-        result_img = results[0].plot()
+            result_img = results[0].plot()
 
-        # Save output image
-        output_path = os.path.join(app.config["OUTPUT_FOLDER"], file.filename)
-        cv2.imwrite(output_path, result_img)
+            output_path = os.path.join(app.config["OUTPUT_FOLDER"], file.filename)
+            output_path = output_path.replace("\\", "/")
+            cv2.imwrite(output_path, result_img)
 
-        return render_template(
-            "index.html",
-            uploaded_image=upload_path,
-            output_image=output_path
-        )
+            # Prediction text
+            if len(results[0].boxes) > 0:
+                prediction = f"{len(results[0].boxes)} Objects Detected 🌿"
+            else:
+                prediction = "No Objects Detected ❌"
 
-    return render_template("index.html", uploaded_image=None, output_image=None)
+            uploaded_image = "/" + upload_path
+            output_image = "/" + output_path
 
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    return render_template(
+        "index.html",
+        uploaded_image=uploaded_image,
+        output_image=output_image,
+        prediction=prediction
+    )
 
 
 if __name__ == "__main__":
